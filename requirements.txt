@@ -1,0 +1,5 @@
+
+ jsonwebtoken 
+ jwk-to-pem 
+ axios
+aws-sdk
