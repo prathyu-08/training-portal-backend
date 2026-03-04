@@ -133,19 +133,22 @@ exports.addVideo = async (event, body) => {
 
 /* ================= ACCESS ================= */
 
-// POST /admin/access
 exports.grantAccess = async (event, body) => {
   const admin = await requireAdmin(event);
 
-  // 🔎 Find user by email using GSI
-  const userResult = await dynamo.query({
+  console.log("BODY:", body);
+
+  // 🔥 TEMP: use SCAN instead of GSI (guaranteed match)
+  const userResult = await dynamo.scan({
     TableName: TABLE_NAME,
-    IndexName: "GSI1",  // Make sure GSI1 exists
-    KeyConditionExpression: "GSI1PK = :email",
+    FilterExpression: "email = :email AND SK = :sk",
     ExpressionAttributeValues: {
-      ":email": `EMAIL#${body.email}`,
+      ":email": body.email,
+      ":sk": "PROFILE",
     },
   }).promise();
+
+  console.log("USER FOUND:", userResult.Items);
 
   if (!userResult.Items.length) {
     throw new Error("User not found");
@@ -162,26 +165,42 @@ exports.grantAccess = async (event, body) => {
     granted_at: new Date().toISOString(),
   };
 
+  console.log("WRITING ACCESS:", access);
+
   await dynamo.put({
     TableName: TABLE_NAME,
     Item: access,
   }).promise();
 
+  console.log("✅ ACCESS CREATED");
+
   return { message: "Access granted" };
 };
 // DELETE /admin/access
-exports.revokeAccess = async (event, body) => {
+exports.revokeAccess = async (event) => {
   await requireAdmin(event);
 
-  // 🔎 Find user by email using GSI
-  const userResult = await dynamo.query({
+  const email = event.queryStringParameters?.email;
+  const course_id = event.queryStringParameters?.course_id;
+
+  console.log("REVOKE EMAIL:", email);
+  console.log("REVOKE COURSE:", course_id);
+
+  if (!email || !course_id) {
+    throw new Error("Missing email or course_id");
+  }
+
+  // ✅ SAME LOGIC AS grantAccess (SCAN)
+  const userResult = await dynamo.scan({
     TableName: TABLE_NAME,
-    IndexName: "GSI1",
-    KeyConditionExpression: "GSI1PK = :email",
+    FilterExpression: "email = :email AND SK = :sk",
     ExpressionAttributeValues: {
-      ":email": `EMAIL#${body.email}`,
+      ":email": email,
+      ":sk": "PROFILE",
     },
   }).promise();
+
+  console.log("USER FOUND:", userResult.Items);
 
   if (!userResult.Items.length) {
     throw new Error("User not found");
@@ -189,15 +208,17 @@ exports.revokeAccess = async (event, body) => {
 
   const user = userResult.Items[0];
 
-  // ✅ Delete using correct user_id
+  // ✅ DELETE ACCESS
   await dynamo.delete({
     TableName: TABLE_NAME,
     Key: {
       PK: `USER#${user.user_id}`,
-      SK: `ACCESS#COURSE#${body.course_id}`,
+      SK: `ACCESS#COURSE#${course_id}`,
     },
-    ConditionExpression: "attribute_exists(PK)" // ✅ ensures delete worked
   }).promise();
+
+  console.log("✅ ACCESS DELETED");
+
   return { message: "Access revoked" };
 };
 
