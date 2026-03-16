@@ -3,6 +3,7 @@ const dynamo = new AWS.DynamoDB.DocumentClient();
 const { verifyToken } = require("./auth");
 const { v4: uuidv4 } = require("uuid");
 const axios = require("axios");
+const { generateSummary } = require("./aiSummarizer");
 
 const TABLE_NAME = process.env.DYNAMODB_TABLE;
 
@@ -16,7 +17,6 @@ const requireAdmin = async (event) => {
 
   const user = await verifyToken(token);
 
-  // ✅ Admin by email domain (matches your login logic)
   if (!user.email.toLowerCase().endsWith("@nmkglobalinc.com")) {
     throw new Error("Admin access required");
   }
@@ -92,6 +92,7 @@ exports.updateCourse = async (event, body, course_id) => {
 /* ================= VIDEO ================= */
 // POST /admin/videos
 exports.addVideo = async (event, body) => {
+  console.log("🔥 ADD VIDEO API HIT");
   await requireAdmin(event);
 
   const video_id = uuidv4();
@@ -100,7 +101,6 @@ exports.addVideo = async (event, body) => {
     `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${body.youtube_video_id}&format=json`
   );
 
-  // 1️⃣ Course → Video relation
   await dynamo.put({
     TableName: TABLE_NAME,
     Item: {
@@ -112,7 +112,6 @@ exports.addVideo = async (event, body) => {
     },
   }).promise();
 
-  // 2️⃣ Video metadata
   await dynamo.put({
     TableName: TABLE_NAME,
     Item: {
@@ -128,7 +127,53 @@ exports.addVideo = async (event, body) => {
     },
   }).promise();
 
+  console.log("🔥 STEP 1 — video metadata saved");
+
+  // ✅ Fire-and-forget summary generation (don't block the response)
+  try {
+    console.log("🔥 STEP 2 — calling summary async");
+    generateSummary(video_id, body.youtube_video_id)
+      .then(() => console.log("🔥 STEP 3 — summary finished async"))
+      .catch(e => console.log("🔥 SUMMARY ASYNC FAILED:", e));
+  } catch (e) {
+    console.log("🔥 SUMMARY FAILED:", e);
+  }
+
   return { message: "Video added", video_id };
+};
+
+/* ================= GET VIDEO SUMMARY ON-DEMAND ================= */
+// POST /admin/videos/{videoId}/summary
+exports.getVideoSummary = async (event, videoId) => {
+  await requireAdmin(event);
+
+  // Fetch existing video metadata
+  const video = await dynamo.get({
+    TableName: TABLE_NAME,
+    Key: {
+      PK: `VIDEO#${videoId}`,
+      SK: "METADATA",
+    },
+  }).promise();
+
+  if (!video.Item) {
+    throw new Error("Video not found");
+  }
+
+  // If summary already exists, return it
+  if (video.Item.ai_summary && video.Item.ai_summary.length > 20) {
+    return { summary: video.Item.ai_summary, from_cache: true };
+  }
+
+  // Otherwise generate fresh summary
+  console.log("🔥 ON-DEMAND SUMMARY for:", videoId);
+  const summary = await generateSummary(videoId, video.Item.youtube_video_id);
+
+  if (!summary) {
+    throw new Error("Failed to generate summary. Please try again.");
+  }
+
+  return { summary, from_cache: false };
 };
 
 /* ================= ACCESS ================= */
@@ -138,7 +183,6 @@ exports.grantAccess = async (event, body) => {
 
   console.log("BODY:", body);
 
-  // 🔥 TEMP: use SCAN instead of GSI (guaranteed match)
   const userResult = await dynamo.scan({
     TableName: TABLE_NAME,
     FilterExpression: "email = :email AND SK = :sk",
@@ -176,10 +220,12 @@ exports.grantAccess = async (event, body) => {
 
   return { message: "Access granted" };
 };
+
 // DELETE /admin/access
 exports.revokeAccess = async (event) => {
   await requireAdmin(event);
 
+  // ✅ FIX: read from queryStringParameters (DELETE requests don't have body)
   const email = event.queryStringParameters?.email;
   const course_id = event.queryStringParameters?.course_id;
 
@@ -190,7 +236,6 @@ exports.revokeAccess = async (event) => {
     throw new Error("Missing email or course_id");
   }
 
-  // ✅ SAME LOGIC AS grantAccess (SCAN)
   const userResult = await dynamo.scan({
     TableName: TABLE_NAME,
     FilterExpression: "email = :email AND SK = :sk",
@@ -208,7 +253,6 @@ exports.revokeAccess = async (event) => {
 
   const user = userResult.Items[0];
 
-  // ✅ DELETE ACCESS
   await dynamo.delete({
     TableName: TABLE_NAME,
     Key: {
@@ -280,6 +324,7 @@ exports.listCourses = async (event) => {
 
   return data.Items;
 };
+
 // GET /admin/courses
 exports.getAdminCourses = async (event) => {
   await requireAdmin(event);
@@ -296,8 +341,9 @@ exports.getAdminCourses = async (event) => {
     },
   }).promise();
 
-  return result.Items; // ✅ PURE JSON ARRAY
+  return result.Items;
 };
+
 // DELETE /admin/courses/{id}
 exports.deleteCourse = async (event, course_id) => {
   await requireAdmin(event);
@@ -312,6 +358,7 @@ exports.deleteCourse = async (event, course_id) => {
 
   return { message: "Course deleted successfully" };
 };
+
 // GET /admin/courses/{id}
 exports.getCourseById = async (event, course_id) => {
   await requireAdmin(event);
@@ -330,11 +377,11 @@ exports.getCourseById = async (event, course_id) => {
 
   return result.Item;
 };
+
 // GET /admin/courses/{id}/videos
 exports.listCourseVideos = async (event, courseId) => {
   await requireAdmin(event);
 
-  // 1️⃣ Get all course → video relations
   const relations = await dynamo.query({
     TableName: TABLE_NAME,
     KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
@@ -346,11 +393,9 @@ exports.listCourseVideos = async (event, courseId) => {
 
   const videos = [];
 
-  // 2️⃣ Fetch metadata for each video
   for (const rel of relations.Items) {
-
     const videoId = rel.SK.replace("VIDEO#", "");
-  
+
     const videoMeta = await dynamo.get({
       TableName: TABLE_NAME,
       Key: {
@@ -358,12 +403,13 @@ exports.listCourseVideos = async (event, courseId) => {
         SK: "METADATA",
       },
     }).promise();
-  
+
     if (videoMeta.Item) {
       videos.push({
         video_id: videoMeta.Item.video_id,
         title: videoMeta.Item.title,
         thumbnail_url: videoMeta.Item.thumbnail_url,
+        ai_summary: videoMeta.Item.ai_summary || null,
       });
     }
   }
@@ -375,7 +421,6 @@ exports.listCourseVideos = async (event, courseId) => {
 exports.getUsersByCourse = async (event, course_id) => {
   await requireAdmin(event);
 
-  // 1️⃣ Get all users
   const users = await dynamo.scan({
     TableName: TABLE_NAME,
     FilterExpression: "begins_with(PK, :pk) AND SK = :sk",
@@ -387,7 +432,6 @@ exports.getUsersByCourse = async (event, course_id) => {
 
   const result = [];
 
-  // 2️⃣ For each user → check access
   for (const user of users.Items) {
     const access = await dynamo.query({
       TableName: TABLE_NAME,
@@ -413,11 +457,11 @@ exports.getUsersByCourse = async (event, course_id) => {
 
   return { users: result };
 };
+
 // DELETE /admin/videos/{videoId}
 exports.deleteVideo = async (event, videoId) => {
   await requireAdmin(event);
 
-  // 1️⃣ Delete video metadata
   const video = await dynamo.get({
     TableName: TABLE_NAME,
     Key: {
@@ -432,7 +476,6 @@ exports.deleteVideo = async (event, videoId) => {
 
   const courseId = video.Item.course_id;
 
-  // 2️⃣ Delete video metadata
   await dynamo.delete({
     TableName: TABLE_NAME,
     Key: {
@@ -441,7 +484,6 @@ exports.deleteVideo = async (event, videoId) => {
     },
   }).promise();
 
-  // 3️⃣ Delete course → video relation
   await dynamo.delete({
     TableName: TABLE_NAME,
     Key: {
