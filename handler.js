@@ -11,14 +11,12 @@ const admin = require("./admin");
 const { generateSummary } = require("./aiSummarizer");
 
 exports.handler = async (event) => {
-  // ✅ Log everything so CloudWatch shows exactly what arrives
   console.log("EVENT rawPath:", event.rawPath);
   console.log("EVENT path:", event.path);
   console.log("EVENT METHOD:", event.requestContext?.http?.method || event.httpMethod);
   console.log("EVENT routeKey:", event.routeKey);
 
-  try {
-    // ✅ Support BOTH HTTP API v2 (rawPath) and REST API v1 (path)
+  try {  
     const path = (event.rawPath || event.path || "").replace(/\/$/, ""); // strip trailing slash
     const method = event.requestContext?.http?.method || event.httpMethod;
     const body = event.body ? JSON.parse(event.body) : {};
@@ -30,7 +28,6 @@ exports.handler = async (event) => {
       return response(200, {});
     }
 
-    // ✅ DEBUG endpoint — hit /debug to see what Lambda receives
     if (path === "/debug" || path.endsWith("/debug")) {
       return response(200, {
         rawPath: event.rawPath,
@@ -44,8 +41,6 @@ exports.handler = async (event) => {
     const getToken = () =>
       event.headers?.authorization?.split(" ")[1] ||
       event.headers?.Authorization?.split(" ")[1];
-
-    /* ================= AUTH ================= */
 
     if (path === "/register" && method === "POST") {
       await register(body.email, body.password);
@@ -84,8 +79,6 @@ exports.handler = async (event) => {
       return response(200, { message: "Authorized", user_id: user.sub, email: user.email });
     }
 
-    /* ================= ADMIN ROUTES ================= */
-
     if (path === "/admin/courses" && method === "GET") {
       return response(200, await admin.getAdminCourses(event));
     }
@@ -93,9 +86,7 @@ exports.handler = async (event) => {
     if (path === "/admin/courses" && method === "POST") {
       return response(200, await admin.createCourse(event, body));
     }
-
-    // ✅ SUMMARY ROUTE — checked BEFORE generic courses/:id so it can't be shadowed
-    // Matches: /admin/videos/{anything}/summary
+    
     if (method === "GET" && path.includes("/admin/videos/") && path.endsWith("/summary")) {
       // Extract videoId safely: strip /admin/videos/ prefix and /summary suffix
       const videoId = path.replace(/.*\/admin\/videos\//, "").replace("/summary", "");
@@ -169,8 +160,6 @@ exports.handler = async (event) => {
       await generateSummary(video_id, video.Item.youtube_video_id);
       return response(200, { message: "Summary regenerated" });
     }
-
-    /* ================= USER ENDPOINTS ================= */
 
     if (path.match(/^\/courses\/[^/]+\/videos$/) && method === "GET") {
       const token = getToken();
@@ -300,7 +289,6 @@ exports.handler = async (event) => {
       return response(200, courseDetails);
     }
 
-    // ✅ Log unmatched routes so CloudWatch shows exactly what failed
     console.log("❌ NO ROUTE MATCHED — path:", JSON.stringify(path), "method:", method);
     return response(404, { message: "Not found", debug_path: path, debug_method: method });
 
@@ -310,7 +298,6 @@ exports.handler = async (event) => {
   }
 };
 
-/* ================= RESPONSE ================= */
 
 const response = (statusCode, body) => ({
   statusCode,
