@@ -6,7 +6,7 @@ const cognito = new AWS.CognitoIdentityServiceProvider({
 
 const CLIENT_ID = process.env.COGNITO_CLIENT_ID;
 
-// ✅ REGISTER
+//  REGISTER
 const register = async (email, password) => {
   return await cognito
     .signUp({
@@ -23,7 +23,7 @@ const register = async (email, password) => {
     .promise();
 };
 
-// ✅ VERIFY
+//  VERIFY
 const verifyUser = async (email, otp) => {
   return await cognito
     .confirmSignUp({
@@ -34,7 +34,7 @@ const verifyUser = async (email, otp) => {
     .promise();
 };
 
-// ✅ LOGIN
+//  LOGIN
 const login = async (email, password) => {
   const response = await cognito
     .initiateAuth({
@@ -70,7 +70,7 @@ const refresh = async (refreshToken) => {
   };
 };
 
-// ---------------- LOGOUT ----------------
+// LOGOUT 
 const logout = async (accessToken) => {
   return await cognito
     .globalSignOut({
