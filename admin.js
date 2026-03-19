@@ -7,7 +7,7 @@ const { generateSummary } = require("./aiSummarizer");
 
 const TABLE_NAME = process.env.DYNAMODB_TABLE;
 
-/* ================= ADMIN CHECK ================= */
+// ADMIN CHECK 
 const requireAdmin = async (event) => {
   const token =
     event.headers.authorization?.split(" ")[1] ||
@@ -24,7 +24,7 @@ const requireAdmin = async (event) => {
   return user;
 };
 
-/* ================= COURSE ================= */
+// COURSES
 
 // POST /admin/courses
 exports.createCourse = async (event, body) => {
@@ -89,7 +89,7 @@ exports.updateCourse = async (event, body, course_id) => {
   return { message: "Course updated" };
 };
 
-/* ================= VIDEO ================= */
+// VIDEO 
 // POST /admin/videos
 exports.addVideo = async (event, body) => {
   console.log("🔥 ADD VIDEO API HIT");
@@ -129,7 +129,7 @@ exports.addVideo = async (event, body) => {
 
   console.log("🔥 STEP 1 — video metadata saved");
 
-  // ✅ Fire-and-forget summary generation (don't block the response)
+  // Fire-and-forget summary generation (don't block the response)
   try {
     console.log("🔥 STEP 2 — calling summary async");
     generateSummary(video_id, body.youtube_video_id)
@@ -142,7 +142,7 @@ exports.addVideo = async (event, body) => {
   return { message: "Video added", video_id };
 };
 
-/* ================= GET VIDEO SUMMARY ON-DEMAND ================= */
+//GET VIDEO SUMMARY ON-DEMAND 
 // POST /admin/videos/{videoId}/summary
 exports.getVideoSummary = async (event, videoId) => {
   await requireAdmin(event);
@@ -176,7 +176,7 @@ exports.getVideoSummary = async (event, videoId) => {
   return { summary, from_cache: false };
 };
 
-/* ================= ACCESS ================= */
+// ACCESS 
 
 exports.grantAccess = async (event, body) => {
   const admin = await requireAdmin(event);
@@ -225,7 +225,7 @@ exports.grantAccess = async (event, body) => {
 exports.revokeAccess = async (event) => {
   await requireAdmin(event);
 
-  // ✅ FIX: read from queryStringParameters (DELETE requests don't have body)
+  //  read from queryStringParameters (DELETE requests don't have body)
   const email = event.queryStringParameters?.email;
   const course_id = event.queryStringParameters?.course_id;
 
@@ -266,7 +266,7 @@ exports.revokeAccess = async (event) => {
   return { message: "Access revoked" };
 };
 
-/* ================= USERS ================= */
+//USERS 
 
 // GET /admin/users
 exports.listUsers = async (event) => {
@@ -305,7 +305,7 @@ exports.listUsers = async (event) => {
   return result;
 };
 
-/* ================= LIST COURSES ================= */
+//LIST COURSES 
 
 exports.listCourses = async (event) => {
   await requireAdmin(event);
