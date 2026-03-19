@@ -9,7 +9,7 @@ const JWKS_URL = `https://cognito-idp.${REGION}.amazonaws.com/${USER_POOL_ID}/.w
 
 let pems = null;
 
-/* ================= LOAD & CACHE JWKS ================= */
+//LOAD & CACHE JWKS 
 
 const getPems = async () => {
   if (pems) return pems;
@@ -24,7 +24,7 @@ const getPems = async () => {
   return pems;
 };
 
-/* ================= VERIFY COGNITO TOKEN ================= */
+// VERIFY COGNITO TOKEN 
 
 const verifyToken = async (token) => {
   try {
